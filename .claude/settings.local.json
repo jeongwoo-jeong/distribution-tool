@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git --version)",
+      "Bash(extract-text \"C:\\\\Users\\\\JEONG_JEONGWOO01\\\\Downloads\\\\0421_인디고키즈_가용재고\\(단품\\) \\(1\\) \\(1\\).xlsx\")",
+      "Read(//c/Users/JEONG_JEONGWOO01/AppData/Roaming/Claude/local-agent-mode-sessions/skills-plugin/90f32a94-c7f1-4039-bf1e-443b66894292/ba5c3719-6ae4-4f4b-b582-424dcb3976b5/skills/xlsx/**)",
+      "Bash(python3 -)",
+      "Bash(gh repo *)",
+      "Bash(git init *)",
+      "Bash(git remote *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}
