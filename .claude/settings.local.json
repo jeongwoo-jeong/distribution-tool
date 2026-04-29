@@ -14,7 +14,10 @@
       "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --yes)",
       "Bash(npx create-next-app@latest distribution-app --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --yes)",
       "Bash(npm run *)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(python3 -c ' *)",
+      "PowerShell(pip install openpyxl -q)",
+      "Bash(npx tsc *)"
     ]
   }
 }
