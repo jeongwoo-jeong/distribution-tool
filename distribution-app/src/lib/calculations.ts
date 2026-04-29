@@ -57,11 +57,22 @@ export function calculateDistribution(
       const branchRate = skuRate ?? styleRate
 
       let clearanceBoost = 1.0
+      const avgKey = skuRate !== undefined ? style.styleCode : baseStyle
+      const styleHasData = avgMap.has(baseStyle) || avgMap.has(style.styleCode)
+
       if (branchRate !== undefined) {
-        const avgKey = skuRate !== undefined ? style.styleCode : baseStyle
         const avg = avgMap.get(avgKey) ?? branchRate
-        clearanceBoost = avg > 0 ? branchRate / avg : 1.0
-        clearanceBoost = Math.max(0.1, Math.min(3.0, clearanceBoost))
+        if (avg > 0) {
+          const ratio = branchRate / avg
+          // 3승 지수: 평균 대비 소진율 차이를 강하게 반영 (상한 없음)
+          // 예) branchRate=100, avg=40 → ratio=2.5 → boost=15.6
+          // C등급(0.4) × 15.6 = 6.25 → 평균 A등급(1.0)의 6배 가중치
+          clearanceBoost = Math.pow(ratio, 3)
+          clearanceBoost = Math.max(0.01, clearanceBoost) // 하한만 설정, 상한 없음
+        }
+      } else if (styleHasData) {
+        // 해당 스타일에 소진율 데이터가 존재하지만 이 지점 데이터가 없으면 기본값 낮춤
+        clearanceBoost = 0.5
       }
 
       effectiveWeights[branch.id] = gradeW * clearanceBoost

@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { Branch, ClearanceData, DistributionData, StyleItem } from '@/lib/types'
-import { INITIAL_BRANCHES, INITIAL_STYLES } from '@/lib/sampleData'
+import { INITIAL_BRANCHES, INITIAL_STYLES, INITIAL_CLEARANCE } from '@/lib/sampleData'
 import { calculateDistribution } from '@/lib/calculations'
 import { exportToExcel } from '@/lib/exportExcel'
 import ControlBar from '@/components/ControlBar'
@@ -16,7 +16,7 @@ export default function Home() {
   const [allStyles] = useState<StyleItem[]>(INITIAL_STYLES)
   const [ratio, setRatio] = useState(50)
   const [data, setData] = useState<DistributionData>({})
-  const [clearanceData, setClearanceData] = useState<ClearanceData[]>([])
+  const [clearanceData, setClearanceData] = useState<ClearanceData[]>(INITIAL_CLEARANCE)
   const [search, setSearch] = useState('')
 
   const [showGradeModal, setShowGradeModal] = useState(false)
