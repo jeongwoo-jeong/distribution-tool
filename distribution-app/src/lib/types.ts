@@ -40,10 +40,10 @@ export interface ClearanceData {
 
 export const GRADE_WEIGHTS: Record<Grade, number> = {
   A: 1.0,
-  B: 0.7,
-  C: 0.4,
-  D: 0.2,
-  E: 0.1,
+  B: 0.8,
+  C: 0.6,
+  D: 0.4,
+  E: 0.3,
   X: 0,   // 제외
 }
 

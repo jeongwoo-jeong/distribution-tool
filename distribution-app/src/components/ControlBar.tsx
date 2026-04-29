@@ -6,17 +6,18 @@ interface ControlBarProps {
   onCalculate: () => void
   onReset: () => void
   onExport: () => void
-  onGradeSettings: () => void
-  onSalesData: () => void
-  onClearanceData: () => void
+  onDataUpload: () => void      // 브랜드 데이터 업로드
+  onGradeSettings: () => void   // 등급 수동 조정
   isCalculated: boolean
   hasClearanceData: boolean
+  branchCount: number
+  styleCount: number
 }
 
 export default function ControlBar({
   ratio, onRatioChange, onCalculate, onReset, onExport,
-  onGradeSettings, onSalesData, onClearanceData,
-  isCalculated, hasClearanceData,
+  onDataUpload, onGradeSettings,
+  isCalculated, hasClearanceData, branchCount, styleCount,
 }: ControlBarProps) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 16px', background: '#F0F4FF', borderBottom: '2px solid #B0C4FF', flexWrap: 'wrap' }}>
@@ -36,35 +37,47 @@ export default function ControlBar({
 
       <Divider />
 
-      {/* 그룹1: 등급/매출 설정 */}
-      <div style={{ display: 'flex', gap: '6px' }}>
-        <button onClick={onGradeSettings} style={btn('#1e40af')}>⚙ 지점 등급 설정</button>
-        <button onClick={onSalesData} style={btn('#7C3AED')}>📊 매출데이터 · 자동등급</button>
-      </div>
-
-      <Divider />
-
-      {/* 그룹2: 소진율 */}
-      <button
-        onClick={onClearanceData}
-        style={{ ...btn('#0369A1'), position: 'relative' }}
-      >
-        📈 소진율 우선분배
-        {hasClearanceData && (
-          <span style={{ position: 'absolute', top: '-5px', right: '-5px', background: '#16a34a', color: '#fff', borderRadius: '50%', width: '14px', height: '14px', fontSize: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>✓</span>
-        )}
+      {/* 데이터 업로드 */}
+      <button onClick={onDataUpload} style={{ ...btn('#1D4ED8'), display: 'flex', alignItems: 'center', gap: '5px' }}>
+        📂 브랜드 데이터 업로드
       </button>
 
+      {/* 현재 데이터 현황 */}
+      {(branchCount > 0 || styleCount > 0) && (
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <span style={{ fontSize: '11px', background: '#DBEAFE', color: '#1D4ED8', borderRadius: '4px', padding: '2px 8px', fontWeight: 600 }}>
+            매장 {branchCount}개
+          </span>
+          <span style={{ fontSize: '11px', background: '#F0FDF4', color: '#15803D', borderRadius: '4px', padding: '2px 8px', fontWeight: 600 }}>
+            품목 {styleCount}개
+          </span>
+          {hasClearanceData && (
+            <span style={{ fontSize: '11px', background: '#F0F9FF', color: '#0369A1', borderRadius: '4px', padding: '2px 8px', fontWeight: 600 }}>
+              소진율 ✓
+            </span>
+          )}
+        </div>
+      )}
+
       <Divider />
 
-      {/* 그룹3: 실행 */}
+      {/* 등급 수동 조정 */}
+      <button onClick={onGradeSettings} style={btn('#4B5563')}>⚙ 등급 수동 조정</button>
+
+      <Divider />
+
+      {/* 실행 */}
       <button onClick={onCalculate} style={btn('#16a34a')}>▶ 자동 분배 계산</button>
       <button onClick={onReset} style={btn('#DC2626')}>↺ 초기화</button>
 
       <div style={{ flex: 1 }} />
 
-      {/* Excel */}
-      <button onClick={onExport} disabled={!isCalculated} style={btn(isCalculated ? '#15803D' : '#9CA3AF', !isCalculated)}>
+      {/* Excel 다운로드 */}
+      <button
+        onClick={onExport}
+        disabled={!isCalculated}
+        style={btn(isCalculated ? '#15803D' : '#9CA3AF', !isCalculated)}
+      >
         ↓ Excel 출고장 다운로드
       </button>
     </div>

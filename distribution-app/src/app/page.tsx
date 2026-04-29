@@ -8,20 +8,28 @@ import { exportToExcel } from '@/lib/exportExcel'
 import ControlBar from '@/components/ControlBar'
 import DistributionTable from '@/components/DistributionTable'
 import GradeSettingsModal from '@/components/GradeSettingsModal'
-import SalesDataModal from '@/components/SalesDataModal'
-import ClearanceDataModal from '@/components/ClearanceDataModal'
+import DataUploadModal from '@/components/DataUploadModal'
 
 export default function Home() {
   const [branches, setBranches] = useState<Branch[]>(INITIAL_BRANCHES)
-  const [allStyles] = useState<StyleItem[]>(INITIAL_STYLES)
+  const [allStyles, setAllStyles] = useState<StyleItem[]>(INITIAL_STYLES)
+  const [clearanceData, setClearanceData] = useState<ClearanceData[]>(INITIAL_CLEARANCE)
+
   const [ratio, setRatio] = useState(50)
   const [data, setData] = useState<DistributionData>({})
-  const [clearanceData, setClearanceData] = useState<ClearanceData[]>(INITIAL_CLEARANCE)
   const [search, setSearch] = useState('')
 
   const [showGradeModal, setShowGradeModal] = useState(false)
-  const [showSalesModal, setShowSalesModal] = useState(false)
-  const [showClearanceModal, setShowClearanceModal] = useState(false)
+  const [showUploadModal, setShowUploadModal] = useState(false)
+
+  // 브랜드 데이터 업로드 적용
+  function handleDataApply(newBranches: Branch[], newStyles: StyleItem[], newClearance: ClearanceData[]) {
+    setBranches(newBranches)
+    setAllStyles(newStyles)
+    setClearanceData(newClearance)
+    setData({})   // 계산 결과 초기화
+    setSearch('')
+  }
 
   const styles = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -56,13 +64,15 @@ export default function Home() {
     }))
   }
 
+  const activeBranchCount = branches.filter((b) => b.grade !== 'X').length
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#F8FAFF', fontFamily: 'Arial, sans-serif' }}>
 
       {/* 타이틀바 */}
       <div style={{ background: '#1D4ED8', color: '#fff', padding: '8px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <span style={{ fontWeight: 700, fontSize: '15px', letterSpacing: '0.5px' }}>
-          인디고키즈 이월상품 분배장 시스템
+          이월상품 자동 분배장 시스템
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <div style={{ position: 'relative' }}>
@@ -94,11 +104,12 @@ export default function Home() {
           onCalculate={handleCalculate}
           onReset={handleReset}
           onExport={() => exportToExcel(allStyles, branches, data, ratio)}
+          onDataUpload={() => setShowUploadModal(true)}
           onGradeSettings={() => setShowGradeModal(true)}
-          onSalesData={() => setShowSalesModal(true)}
-          onClearanceData={() => setShowClearanceModal(true)}
           isCalculated={isCalculated}
           hasClearanceData={clearanceData.length > 0}
+          branchCount={activeBranchCount}
+          styleCount={allStyles.length}
         />
       </div>
 
@@ -123,11 +134,8 @@ export default function Home() {
       {showGradeModal && (
         <GradeSettingsModal branches={branches} onUpdate={setBranches} onClose={() => setShowGradeModal(false)} />
       )}
-      {showSalesModal && (
-        <SalesDataModal branches={branches} onApply={setBranches} onClose={() => setShowSalesModal(false)} />
-      )}
-      {showClearanceModal && (
-        <ClearanceDataModal currentData={clearanceData} onApply={setClearanceData} onClose={() => setShowClearanceModal(false)} />
+      {showUploadModal && (
+        <DataUploadModal onApply={handleDataApply} onClose={() => setShowUploadModal(false)} />
       )}
     </div>
   )
