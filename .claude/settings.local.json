@@ -17,7 +17,11 @@
       "Bash(npm install *)",
       "Bash(python3 -c ' *)",
       "PowerShell(pip install openpyxl -q)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "WebFetch(domain:github.com)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(sleep 8 && cat \"C:\\\\Users\\\\JEONG_~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-JEONG-JEONGWOO01-Desktop-----ai\\\\ff4f0d37-2e72-4799-b1bc-0f2452d3e271\\\\tasks\\\\ba7exoa34.output\" 2>/dev/null || cat \"/c/Users/JEONG_JEONGWOO01/AppData/Local/Temp/claude/C--Users-JEONG-JEONGWOO01-Desktop-----ai/ff4f0d37-2e72-4799-b1bc-0f2452d3e271/tasks/ba7exoa34.output\")",
+      "PowerShell(Stop-Process -Id 28960 -Force -ErrorAction SilentlyContinue)"
     ]
   }
 }
