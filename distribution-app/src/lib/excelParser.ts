@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx'
-import { Branch, StyleItem, ClearanceData, Grade } from './types'
+import { Branch, BranchColumn, StyleItem, ClearanceData, Grade } from './types'
 
 // ─── 파싱 결과 타입 ──────────────────────────────────────────────────
 export interface ParsedStockRow {
@@ -8,6 +8,14 @@ export interface ParsedStockRow {
   color: string
   size: string
   availableStock: number
+  year?: number
+  season?: number
+}
+
+export interface ParsedStockResult {
+  rows: ParsedStockRow[]
+  branchColumns: import('./types').BranchColumn[]
+  fileBuffer: ArrayBuffer
 }
 
 export interface ParsedSalesRow {
@@ -38,107 +46,201 @@ function getRows(ws: XLSX.WorkSheet): unknown[][] {
 }
 
 // ─── 1. 가용재고 파싱 ────────────────────────────────────────────────
-// 헤더(1행): A=스타일코드 | B=상품명 | C=컬러 | D=사이즈 | E=가용재고수량
-export async function parseStockExcel(file: File): Promise<ParsedStockRow[]> {
+// 실제 양식 (인디고키즈 ERP):
+//   7행 헤더: H=ARTICLE | I=스타일/컬러("품명, 컬러코드 컬러명, 사이즈") | L=가용합계
+//   8행~: 데이터
+// 구버전 양식 (단순 5컬럼):
+//   1행 헤더: A=스타일코드 | B=상품명 | C=컬러 | D=사이즈 | E=가용재고수량
+export async function parseStockExcel(file: File): Promise<ParsedStockResult> {
   const buf = await readFileBuffer(file)
   const wb = XLSX.read(buf, { type: 'array' })
   const ws = wb.Sheets[wb.SheetNames[0]]
   const rows = getRows(ws)
 
-  const results: ParsedStockRow[] = []
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i]
-    const styleCode = String(row[0] ?? '').trim()
-    const productName = String(row[1] ?? '').trim()
-    const color = String(row[2] ?? '').trim()
-    const size = String(row[3] ?? '').trim()
-    const availableStock = Number(row[4] ?? 0)
-    if (!styleCode || isNaN(availableStock) || availableStock <= 0) continue
-    results.push({ styleCode, productName, color, size, availableStock })
+  // 처음 10행 안에서 H열(index 7)에 'ARTICLE'이 있는 행을 헤더로 판별
+  let headerRowIdx = -1
+  for (let i = 0; i < Math.min(rows.length, 10); i++) {
+    if (String(rows[i]?.[7] ?? '').trim().toUpperCase() === 'ARTICLE') {
+      headerRowIdx = i
+      break
+    }
   }
-  return results
+  const isErpFormat = headerRowIdx >= 0
+
+  const results: ParsedStockRow[] = []
+  const branchColumns: BranchColumn[] = []
+
+  if (isErpFormat) {
+    // 헤더행에서 매장 컬럼 순서 추출 (M열=index 12 이후, 숫자코드만)
+    const headerRow = rows[headerRowIdx]
+    for (let colIdx = 12; colIdx < headerRow.length; colIdx++) {
+      const code = String(headerRow[colIdx] ?? '').trim()
+      if (code && /^\d+$/.test(code)) {
+        branchColumns.push({ code, colIdx })
+      }
+    }
+
+    // ERP 양식: ARTICLE 헤더 다음 행부터 데이터
+    for (let i = headerRowIdx + 1; i < rows.length; i++) {
+      const row = rows[i]
+      const styleCode = String(row[7] ?? '').trim()    // H열: ARTICLE
+      const styleColor = String(row[8] ?? '').trim()   // I열: "품명, 컬러, 사이즈"
+      const availableStock = Number(row[10] ?? 0)      // K열: 가용재고
+      const year = Number(row[5] ?? 0) || undefined    // F열: 판매 년도
+      const season = Number(row[6] ?? 0) || undefined  // G열: 판매 계절
+
+      if (!styleCode || isNaN(availableStock) || availableStock <= 0) continue
+
+      const parts = styleColor.split(',').map((s) => s.trim())
+      const productName = parts[0] ?? styleColor
+      const color = parts[1] ?? ''
+      const size = parts[2] ?? ''
+
+      results.push({ styleCode, productName, color, size, availableStock, year, season })
+    }
+  } else {
+    // 구버전 양식
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i]
+      const styleCode = String(row[0] ?? '').trim()
+      const productName = String(row[1] ?? '').trim()
+      const color = String(row[2] ?? '').trim()
+      const size = String(row[3] ?? '').trim()
+      const availableStock = Number(row[4] ?? 0)
+      if (!styleCode || isNaN(availableStock) || availableStock <= 0) continue
+      results.push({ styleCode, productName, color, size, availableStock })
+    }
+  }
+
+  return { rows: results, branchColumns, fileBuffer: buf }
 }
 
 // ─── 2. 매장·매출 파싱 ──────────────────────────────────────────────
-// 헤더(1행): A=매장코드 | B=매장명 | C=매출액(원) | D=매출성장률(%) *폐점=-100
+// ERP 양식 (전년대비 매출 성장율):
+//   7행~: D=매장코드 | E=매장명 | F=올해매출(KRW) | G=작년매출 | H=전년비성장률(%)
+//   H=-100 → 클로징 매장(X등급), H=0 → 비매장(고객센터/본사 등, 제외)
+// 구버전 양식:
+//   1행 헤더: A=매장코드 | B=매장명 | C=매출액(원) | D=매출성장률(%)
 export async function parseSalesExcel(file: File): Promise<ParsedSalesRow[]> {
   const buf = await readFileBuffer(file)
   const wb = XLSX.read(buf, { type: 'array' })
   const ws = wb.Sheets[wb.SheetNames[0]]
   const rows = getRows(ws)
 
+  // 첫 3행 안에 '성장율' 또는 '성장률'이 있으면 ERP 양식으로 판별
+  const isErpFormat = rows.slice(0, 3).some((row) =>
+    row.some((v) => String(v).includes('성장율') || String(v).includes('성장률'))
+  )
+
   const results: ParsedSalesRow[] = []
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i]
-    const code = String(row[0] ?? '').trim()
-    const name = String(row[1] ?? '').trim()
-    const sales = Number(row[2] ?? 0)
-    const growthRate = Number(row[3] ?? 0)
-    if (!code || !name) continue
-    results.push({ code, name, sales, growthRate })
+
+  if (isErpFormat) {
+    // ERP 양식 (전년대비 매출 성장율):
+    // C(2)=매장코드 | D(3)=매장명 | E(4)=올해매출 | G(6)=전년비성장률
+    // C열이 숫자 코드인 행만 처리 (합계/브랜드 집계행 제외)
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
+      const code = String(row[2] ?? '').trim()   // C열: 매장코드
+      const name = String(row[3] ?? '').trim()   // D열: 매장명
+      const sales = Number(row[4] ?? 0)          // E열: 올해 매출
+      const growthRate = Number(row[6] ?? 0)     // G열: 전년비 성장률
+
+      // C열이 숫자 코드가 아니면 합계/브랜드 집계행 → skip
+      if (!code || !name || !/^\d+$/.test(code)) continue
+      // 매출=0이고 성장률=0이면 비매장(고객센터/본사/물류) → skip
+      if (sales === 0 && growthRate === 0) continue
+
+      results.push({ code, name, sales, growthRate })
+    }
+  } else {
+    // 구버전 양식: 1행 헤더, 2행~부터 데이터
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i]
+      const code = String(row[0] ?? '').trim()
+      const name = String(row[1] ?? '').trim()
+      const sales = Number(row[2] ?? 0)
+      const growthRate = Number(row[3] ?? 0)
+      if (!code || !name) continue
+      results.push({ code, name, sales, growthRate })
+    }
   }
+
   return results
 }
 
 // ─── 3. 소진율 파싱 ─────────────────────────────────────────────────
-// 헤더(1행): A=매장코드 | B=스타일코드 | C=소진율(0~100 또는 0~1)
+// ERP 양식 (점입고대비판매율):
+//   5행~: B=지점코드 | C=지점명 | F=스타일코드(9자리) | S=판매율(%)
+//   B열이 숫자 코드인 행만 처리 (합계행 등 제외)
+// 구버전 양식:
+//   1행 헤더: A=매장코드 | B=스타일코드 | C=소진율(0~100 또는 0~1)
 export async function parseClearanceExcel(file: File): Promise<ParsedClearanceRow[]> {
   const buf = await readFileBuffer(file)
   const wb = XLSX.read(buf, { type: 'array' })
   const ws = wb.Sheets[wb.SheetNames[0]]
   const rows = getRows(ws)
 
-  // 최대값 먼저 확인해서 0~1 vs 0~100 판별
-  let maxRate = 0
-  const rawRows: { branchCode: string; styleCode: string; rate: number }[] = []
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i]
-    const branchCode = String(row[0] ?? '').trim()
-    const styleCode = String(row[1] ?? '').trim()
-    const rate = Number(row[2] ?? 0)
-    if (!branchCode || !styleCode || isNaN(rate)) continue
-    if (rate > maxRate) maxRate = rate
-    rawRows.push({ branchCode, styleCode, rate })
-  }
+  // R열(index 17)에 "판매율" 이 있으면 점입고대비판매율 ERP 양식으로 판별
+  const isErpFormat = rows.slice(0, 3).some(
+    (row) => String(row[17] ?? '').includes('판매율')
+  )
 
-  // 최대값이 1 이하면 소수(0~1), 초과면 백분율(0~100)
-  const scale = maxRate <= 1 ? 100 : 1
+  const results: ParsedClearanceRow[] = []
 
-  return rawRows.map((r) => ({
-    branchCode: r.branchCode,
-    styleCode: r.styleCode,
-    clearanceRate: r.rate * scale, // 항상 0~100으로 통일
-  }))
-}
+  if (isErpFormat) {
+    // ERP 양식 (점입고대비판매율): 4행(index 3)부터 데이터
+    // A(0)=지점코드 | E(4)=스타일코드(9자리) | R(17)=판매율(%)
+    for (let i = 3; i < rows.length; i++) {
+      const row = rows[i]
+      const branchCode = String(row[0] ?? '').trim()   // A열: 지점코드
+      const styleCode = String(row[4] ?? '').trim()    // E열: 스타일코드(9자리)
+      const rate = Number(row[17] ?? 0)                // R열: 판매율(%)
 
-// ─── 데이터 변환: Branch[] ───────────────────────────────────────────
-export function buildBranchesFromSales(salesData: ParsedSalesRow[]): Branch[] {
-  const active = salesData.filter((d) => d.growthRate !== -100 && d.sales > 0)
+      // A열이 숫자 코드가 아닌 행(합계행 등) skip
+      if (!branchCode || !styleCode || !/^\d+$/.test(branchCode)) continue
+      if (isNaN(rate)) continue
 
-  if (active.length === 0) {
-    return salesData.map((d) => ({
-      id: `br_${d.code}`,
-      code: d.code,
-      name: d.name,
-      grade: 'X' as Grade,
+      results.push({ branchCode, styleCode, clearanceRate: rate })
+    }
+  } else {
+    // 구버전 양식
+    let maxRate = 0
+    const rawRows: { branchCode: string; styleCode: string; rate: number }[] = []
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i]
+      const branchCode = String(row[0] ?? '').trim()
+      const styleCode = String(row[1] ?? '').trim()
+      const rate = Number(row[2] ?? 0)
+      if (!branchCode || !styleCode || isNaN(rate)) continue
+      if (rate > maxRate) maxRate = rate
+      rawRows.push({ branchCode, styleCode, rate })
+    }
+    const scale = maxRate <= 1 ? 100 : 1
+    rawRows.forEach((r) => results.push({
+      branchCode: r.branchCode,
+      styleCode: r.styleCode,
+      clearanceRate: r.rate * scale,
     }))
   }
 
-  const totalSales = active.reduce((s, d) => s + d.sales, 0)
+  return results
+}
 
+// ─── 등급 산정 헬퍼 ────────────────────────────────────────────────
+function computeGradeMap(salesData: ParsedSalesRow[]): Map<string, Grade> {
+  const active = salesData.filter((d) => d.growthRate !== -100 && d.sales > 0)
+  const gradeMap = new Map<string, Grade>()
+  if (!active.length) return gradeMap
+
+  const totalSales = active.reduce((s, d) => s + d.sales, 0)
   const minS = Math.min(...active.map((d) => d.sales / totalSales))
   const maxS = Math.max(...active.map((d) => d.sales / totalSales))
-  const growthValues = active.map((d) => d.growthRate)
-  const minG = Math.min(...growthValues)
-  const maxG = Math.max(...growthValues)
 
   const scored = active.map((d) => {
     const share = d.sales / totalSales
     const normS = maxS !== minS ? (share - minS) / (maxS - minS) : 0.5
-    const normG = maxG !== minG ? (d.growthRate - minG) / (maxG - minG) : 0.5
-    return { code: d.code, score: 0.7 * normS + 0.3 * normG }
+    return { code: d.code, score: normS }
   })
-
   scored.sort((a, b) => b.score - a.score)
   const n = scored.length
 
@@ -150,9 +252,41 @@ export function buildBranchesFromSales(salesData: ParsedSalesRow[]): Branch[] {
     if (p < 0.9) return 'D'
     return 'E'
   }
+  scored.forEach((d, i) => gradeMap.set(d.code, gradeOf(i)))
+  return gradeMap
+}
 
-  const gradeMap = new Map(scored.map((d, i) => [d.code, gradeOf(i)]))
+// ─── 데이터 변환: Branch[] (가용재고 컬럼 순서 기준) ──────────────────
+// 가용재고 파일의 매장 컬럼 순서를 따르며, 매출 파일에서 이름/등급 매칭
+// 매출 파일에만 있는 매장은 무시, 가용재고에만 있는 매장은 X등급
+export function buildBranchesFromStockAndSales(
+  branchColumns: BranchColumn[],
+  salesData: ParsedSalesRow[]
+): Branch[] {
+  const gradeMap = computeGradeMap(salesData)
+  const nameMap = new Map(salesData.map((s) => [s.code, s.name]))
+  const closedSet = new Set(salesData.filter((d) => d.growthRate === -100).map((d) => d.code))
 
+  if (branchColumns.length > 0) {
+    // 가용재고 컬럼 순서를 기준으로 Branch 생성
+    return branchColumns.map(({ code }) => ({
+      id: `br_${code}`,
+      code,
+      name: nameMap.get(code) ?? code,
+      grade: closedSet.has(code)
+        ? ('X' as Grade)
+        : gradeMap.has(code)
+        ? (gradeMap.get(code) as Grade)
+        : ('X' as Grade), // 매출 데이터 없으면 X (분배 제외)
+    }))
+  }
+  // 구버전: 매출 파일 기준으로 Branch 생성 (기존 동작)
+  return buildBranchesFromSales(salesData)
+}
+
+// ─── 데이터 변환: Branch[] (매출 파일만 있을 때 기존 동작) ────────────
+export function buildBranchesFromSales(salesData: ParsedSalesRow[]): Branch[] {
+  const gradeMap = computeGradeMap(salesData)
   return salesData.map((d) => ({
     id: `br_${d.code}`,
     code: d.code,
@@ -174,6 +308,8 @@ export function buildStylesFromStock(stockData: ParsedStockRow[]): StyleItem[] {
     color: s.color,
     size: s.size,
     availableStock: s.availableStock,
+    year: s.year,
+    season: s.season,
   }))
 }
 

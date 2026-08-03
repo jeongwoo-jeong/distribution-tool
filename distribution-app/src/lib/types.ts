@@ -15,6 +15,13 @@ export interface StyleItem {
   color: string
   size: string
   availableStock: number
+  year?: number    // F열: 판매 년도
+  season?: number  // G열: 1=봄 2=여름 3=가을 4=겨울 9=공통
+}
+
+export type BranchColumn = {
+  code: string
+  colIdx: number  // 가용재고 파일의 0-based 열 인덱스
 }
 
 export interface DistributionData {

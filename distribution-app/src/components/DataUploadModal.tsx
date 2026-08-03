@@ -4,13 +4,20 @@ import { useState, useRef, useCallback } from 'react'
 import { Branch, StyleItem, ClearanceData, Grade, GRADE_BG, GRADE_TEXT } from '@/lib/types'
 import {
   parseStockExcel, parseSalesExcel, parseClearanceExcel,
-  buildBranchesFromSales, buildStylesFromStock, buildClearanceData,
+  buildBranchesFromStockAndSales, buildStylesFromStock, buildClearanceData,
   downloadStockTemplate, downloadSalesTemplate, downloadClearanceTemplate,
   ParsedStockRow, ParsedSalesRow, ParsedClearanceRow,
 } from '@/lib/excelParser'
+import { BranchColumn } from '@/lib/types'
 
 interface Props {
-  onApply: (branches: Branch[], styles: StyleItem[], clearanceData: ClearanceData[]) => void
+  onApply: (
+    branches: Branch[],
+    styles: StyleItem[],
+    clearanceData: ClearanceData[],
+    stockBuffer: ArrayBuffer,
+    branchColumns: BranchColumn[]
+  ) => void
   onClose: () => void
 }
 
@@ -35,6 +42,8 @@ export default function DataUploadModal({ onApply, onClose }: Props) {
   const [parsedSales, setParsedSales] = useState<ParsedSalesRow[]>([])
   const [parsedClearance, setParsedClearance] = useState<ParsedClearanceRow[]>([])
   const [previewBranches, setPreviewBranches] = useState<Branch[]>([])
+  const [stockBuffer, setStockBuffer] = useState<ArrayBuffer | null>(null)
+  const [branchColumns, setBranchColumns] = useState<BranchColumn[]>([])
 
   const stockRef = useRef<HTMLInputElement>(null)
   const salesRef = useRef<HTMLInputElement>(null)
@@ -44,15 +53,20 @@ export default function DataUploadModal({ onApply, onClose }: Props) {
   async function handleStockFile(file: File) {
     setStockState({ file, status: 'loading', message: '파싱 중...' })
     try {
-      const data = await parseStockExcel(file)
-      if (data.length === 0) throw new Error('데이터가 없습니다')
-      setParsedStock(data)
-      const totalStock = data.reduce((s, r) => s + r.availableStock, 0)
-      const styleCount = new Set(data.map((r) => r.styleCode.substring(0, 9))).size
-      setStockState({ file, status: 'done', message: `${styleCount}개 스타일 / ${data.length}개 SKU / 총 ${totalStock.toLocaleString()}장` })
+      const result = await parseStockExcel(file)
+      if (result.rows.length === 0) throw new Error('데이터가 없습니다')
+      setParsedStock(result.rows)
+      setStockBuffer(result.fileBuffer)
+      setBranchColumns(result.branchColumns)
+      const totalStock = result.rows.reduce((s, r) => s + r.availableStock, 0)
+      const styleCount = new Set(result.rows.map((r) => r.styleCode.substring(0, 9))).size
+      const branchInfo = result.branchColumns.length > 0 ? ` / 매장컬럼 ${result.branchColumns.length}개` : ''
+      setStockState({ file, status: 'done', message: `${styleCount}개 스타일 / ${result.rows.length}개 SKU / 총 ${totalStock.toLocaleString()}장${branchInfo}` })
     } catch {
       setStockState({ file, status: 'error', message: '양식 오류: 헤더(스타일코드/상품명/컬러/사이즈/가용재고수량) 확인' })
       setParsedStock([])
+      setStockBuffer(null)
+      setBranchColumns([])
     }
   }
 
@@ -62,7 +76,7 @@ export default function DataUploadModal({ onApply, onClose }: Props) {
       const data = await parseSalesExcel(file)
       if (data.length === 0) throw new Error('데이터가 없습니다')
       setParsedSales(data)
-      const branches = buildBranchesFromSales(data)
+      const branches = buildBranchesFromStockAndSales(branchColumns, data)
       setPreviewBranches(branches)
       const closed = data.filter((d) => d.growthRate === -100).length
       const active = data.length - closed
@@ -100,13 +114,13 @@ export default function DataUploadModal({ onApply, onClose }: Props) {
 
   // ─── 적용 ─────────────────────────────────────────────────────────
   function handleApply() {
-    if (!parsedStock.length || !parsedSales.length) return
-    const branches = buildBranchesFromSales(parsedSales)
+    if (!parsedStock.length || !parsedSales.length || !stockBuffer) return
+    const branches = buildBranchesFromStockAndSales(branchColumns, parsedSales)
     const styles = buildStylesFromStock(parsedStock)
     const clearance = parsedClearance.length > 0
       ? buildClearanceData(parsedClearance, branches)
       : []
-    onApply(branches, styles, clearance)
+    onApply(branches, styles, clearance, stockBuffer, branchColumns)
     onClose()
   }
 
