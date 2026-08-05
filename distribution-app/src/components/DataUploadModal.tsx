@@ -16,7 +16,8 @@ interface Props {
     styles: StyleItem[],
     clearanceData: ClearanceData[],
     stockBuffer: ArrayBuffer,
-    branchColumns: BranchColumn[]
+    branchColumns: BranchColumn[],
+    brandName: string
   ) => void
   onClose: () => void
 }
@@ -44,6 +45,7 @@ export default function DataUploadModal({ onApply, onClose }: Props) {
   const [previewBranches, setPreviewBranches] = useState<Branch[]>([])
   const [stockBuffer, setStockBuffer] = useState<ArrayBuffer | null>(null)
   const [branchColumns, setBranchColumns] = useState<BranchColumn[]>([])
+  const [detectedBrand, setDetectedBrand] = useState('')
 
   const stockRef = useRef<HTMLInputElement>(null)
   const salesRef = useRef<HTMLInputElement>(null)
@@ -58,6 +60,7 @@ export default function DataUploadModal({ onApply, onClose }: Props) {
       setParsedStock(result.rows)
       setStockBuffer(result.fileBuffer)
       setBranchColumns(result.branchColumns)
+      if (result.brandName) setDetectedBrand(result.brandName)
       const totalStock = result.rows.reduce((s, r) => s + r.availableStock, 0)
       const styleCount = new Set(result.rows.map((r) => r.styleCode.substring(0, 9))).size
       const branchInfo = result.branchColumns.length > 0 ? ` / 매장컬럼 ${result.branchColumns.length}개` : ''
@@ -120,7 +123,7 @@ export default function DataUploadModal({ onApply, onClose }: Props) {
     const clearance = parsedClearance.length > 0
       ? buildClearanceData(parsedClearance, branches)
       : []
-    onApply(branches, styles, clearance, stockBuffer, branchColumns)
+    onApply(branches, styles, clearance, stockBuffer, branchColumns, detectedBrand)
     onClose()
   }
 

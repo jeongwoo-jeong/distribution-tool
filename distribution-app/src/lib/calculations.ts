@@ -26,6 +26,8 @@ function buildAvgClearanceMap(clearanceList: ClearanceData[]): Map<string, numbe
   return avgs
 }
 
+const MAX_PER_BRANCH = 15  // 매장당 스타일별 최대 분배 수량
+
 export function calculateDistribution(
   styles: StyleItem[],
   branches: Branch[],
@@ -64,7 +66,7 @@ export function calculateDistribution(
         const avg = avgMap.get(avgKey) ?? branchRate
         if (avg > 0) {
           const clearanceRatio = branchRate / avg
-          clearanceBoost = Math.pow(clearanceRatio, 3)
+          clearanceBoost = Math.pow(clearanceRatio, 2)
           clearanceBoost = Math.max(0.01, clearanceBoost)
         }
       } else if (styleHasData) {
@@ -85,12 +87,19 @@ export function calculateDistribution(
     let remaining = totalQty
     const qtys: Record<string, number> = {}
     for (const branch of activeBranches) {
-      const qty = Math.floor(totalQty * effectiveWeights[branch.id] / totalWeight)
+      const qty = Math.min(
+        Math.floor(totalQty * effectiveWeights[branch.id] / totalWeight),
+        MAX_PER_BRANCH
+      )
       qtys[branch.id] = qty
       remaining -= qty
     }
+    // 나머지 수량을 cap에 걸리지 않은 매장 순서대로 배분
     for (let i = 0; i < remaining; i++) {
-      qtys[sorted[i % sorted.length].id]++
+      const branch = sorted[i % sorted.length]
+      if ((qtys[branch.id] ?? 0) < MAX_PER_BRANCH) {
+        qtys[branch.id]++
+      }
     }
 
     for (const branch of activeBranches) {

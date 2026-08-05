@@ -23,13 +23,23 @@ export default function ControlBar({
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 16px', background: '#F0F4FF', borderBottom: '2px solid #B0C4FF', flexWrap: 'wrap' }}>
 
       {/* 분배율 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
         <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e3a8a', whiteSpace: 'nowrap' }}>분배율</span>
+        <button
+          onClick={() => onRatioChange(Math.max(10, ratio - 5))}
+          disabled={ratio <= 10}
+          style={{ width: '24px', height: '24px', borderRadius: '4px', border: '1px solid #93C5FD', background: ratio <= 10 ? '#F3F4F6' : '#fff', color: ratio <= 10 ? '#9CA3AF' : '#1D4ED8', fontWeight: 700, fontSize: '14px', cursor: ratio <= 10 ? 'not-allowed' : 'pointer', lineHeight: 1 }}
+        >−</button>
         <input
           type="range" min={10} max={80} step={5} value={ratio}
           onChange={(e) => onRatioChange(Number(e.target.value))}
-          style={{ width: '130px', accentColor: '#2563EB', cursor: 'pointer' }}
+          style={{ width: '110px', accentColor: '#2563EB', cursor: 'pointer' }}
         />
+        <button
+          onClick={() => onRatioChange(Math.min(80, ratio + 5))}
+          disabled={ratio >= 80}
+          style={{ width: '24px', height: '24px', borderRadius: '4px', border: '1px solid #93C5FD', background: ratio >= 80 ? '#F3F4F6' : '#fff', color: ratio >= 80 ? '#9CA3AF' : '#1D4ED8', fontWeight: 700, fontSize: '14px', cursor: ratio >= 80 ? 'not-allowed' : 'pointer', lineHeight: 1 }}
+        >+</button>
         <span style={{ fontSize: '15px', fontWeight: 700, color: '#1D4ED8', minWidth: '40px', textAlign: 'center' }}>
           {ratio}%
         </span>

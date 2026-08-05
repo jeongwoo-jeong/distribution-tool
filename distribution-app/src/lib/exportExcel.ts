@@ -6,13 +6,15 @@ export function exportToExcel(
   styles: StyleItem[],
   branches: Branch[],
   data: DistributionData,
-  ratio: number
+  ratio: number,
+  brandName = ''
 ) {
   const wb = XLSX.utils.book_new()
   const rows: (string | number)[][] = []
+  const title = brandName ? `${brandName} 이월상품 분배장` : '이월상품 분배장'
 
   // Title
-  rows.push(['인디고키즈 이월상품 분배장'])
+  rows.push([title])
   rows.push([
     `작성일: ${new Date().toLocaleDateString('ko-KR')}`,
     '',
@@ -73,7 +75,8 @@ export function exportToExcel(
   ]
 
   XLSX.utils.book_append_sheet(wb, ws, '분배장')
-  XLSX.writeFile(wb, `인디고키즈_분배장_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  const prefix = brandName || '이월상품'
+  XLSX.writeFile(wb, `${prefix}_분배장_${new Date().toISOString().slice(0, 10)}.xlsx`)
 }
 
 // ─── 가용재고 원본 파일에 분배 수량 채워서 다운로드 ────────────────────
@@ -82,7 +85,8 @@ export function exportToStockFile(
   branchColumns: BranchColumn[],
   styles: StyleItem[],
   branches: Branch[],
-  data: DistributionData
+  data: DistributionData,
+  brandName = ''
 ) {
   const wb = XLSX.read(fileBuffer, { type: 'array' })
   const ws = wb.Sheets[wb.SheetNames[0]]
@@ -161,5 +165,6 @@ export function exportToStockFile(
   }
 
   const date = new Date().toISOString().slice(0, 10)
-  XLSX.writeFile(wb, `인디고키즈_가용재고_분배완료_${date}.xlsx`)
+  const prefix = brandName || '이월상품'
+  XLSX.writeFile(wb, `${prefix}_가용재고_분배완료_${date}.xlsx`)
 }

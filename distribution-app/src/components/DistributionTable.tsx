@@ -10,6 +10,7 @@ interface Props {
   onCellChange: (styleId: string, branchId: string, value: number) => void
   availableTotal: number
   distributionRatio: number
+  brandName?: string
 }
 
 const FIXED_COL_WIDTH = [40, 110, 90, 68, 50, 80, 72]
@@ -22,6 +23,7 @@ export default function DistributionTable({
   onCellChange,
   availableTotal,
   distributionRatio,
+  brandName,
 }: Props) {
   const grandTotal = getGrandTotal(data)
   const isCalculated = Object.keys(data).length > 0
@@ -68,7 +70,7 @@ export default function DistributionTable({
                 letterSpacing: '1px',
               }}
             >
-              인디고키즈 이월상품 분배장
+              {brandName ? `${brandName} 이월상품 분배장` : '이월상품 분배장'}
             </td>
           </tr>
 

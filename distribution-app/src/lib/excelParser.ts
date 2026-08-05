@@ -16,6 +16,7 @@ export interface ParsedStockResult {
   rows: ParsedStockRow[]
   branchColumns: import('./types').BranchColumn[]
   fileBuffer: ArrayBuffer
+  brandName: string   // B열 스타일그룹명 (예: "인디고키즈")
 }
 
 export interface ParsedSalesRow {
@@ -69,20 +70,26 @@ export async function parseStockExcel(file: File): Promise<ParsedStockResult> {
 
   const results: ParsedStockRow[] = []
   const branchColumns: BranchColumn[] = []
+  let brandName = ''
 
   if (isErpFormat) {
-    // 헤더행에서 매장 컬럼 순서 추출 (M열=index 12 이후, 숫자코드만)
+    // 헤더행(7행)에서 매장코드, 2행에서 매장명 추출 (M열=index 12 이후)
+    // 코드는 숫자(7204) 또는 알파뉴메릭(C13N) 모두 허용, 한글/빈값만 제외
     const headerRow = rows[headerRowIdx]
+    const nameRow = rows[1] ?? []  // 2행: 매장명
     for (let colIdx = 12; colIdx < headerRow.length; colIdx++) {
       const code = String(headerRow[colIdx] ?? '').trim()
-      if (code && /^\d+$/.test(code)) {
-        branchColumns.push({ code, colIdx })
+      const name = String(nameRow[colIdx] ?? '').trim()
+      // 알파뉴메릭 코드 허용 (숫자전용 + C13N 같은 코드), 한글 포함 시 제외
+      if (code && /^[A-Z0-9]+$/i.test(code)) {
+        branchColumns.push({ code, colIdx, name: name || undefined })
       }
     }
 
-    // ERP 양식: ARTICLE 헤더 다음 행부터 데이터
+    // ERP 양식: ARTICLE 헤더 다음 행부터 데이터, B열(index 1)에서 브랜드명 추출
     for (let i = headerRowIdx + 1; i < rows.length; i++) {
       const row = rows[i]
+      if (!brandName) brandName = String(row[1] ?? '').trim()  // B열: 스타일그룹명
       const styleCode = String(row[7] ?? '').trim()    // H열: ARTICLE
       const styleColor = String(row[8] ?? '').trim()   // I열: "품명, 컬러, 사이즈"
       const availableStock = Number(row[10] ?? 0)      // K열: 가용재고
@@ -112,7 +119,7 @@ export async function parseStockExcel(file: File): Promise<ParsedStockResult> {
     }
   }
 
-  return { rows: results, branchColumns, fileBuffer: buf }
+  return { rows: results, branchColumns, fileBuffer: buf, brandName }
 }
 
 // ─── 2. 매장·매출 파싱 ──────────────────────────────────────────────
@@ -196,8 +203,8 @@ export async function parseClearanceExcel(file: File): Promise<ParsedClearanceRo
       const styleCode = String(row[4] ?? '').trim()    // E열: 스타일코드(9자리)
       const rate = Number(row[17] ?? 0)                // R열: 판매율(%)
 
-      // A열이 숫자 코드가 아닌 행(합계행 등) skip
-      if (!branchCode || !styleCode || !/^\d+$/.test(branchCode)) continue
+      // 한글 포함(합계행/브랜드행) 또는 비어있는 행 skip, 알파뉴메릭 코드는 허용
+      if (!branchCode || !styleCode || !/^[A-Z0-9]+$/i.test(branchCode)) continue
       if (isNaN(rate)) continue
 
       results.push({ branchCode, styleCode, clearanceRate: rate })
@@ -264,21 +271,37 @@ export function buildBranchesFromStockAndSales(
   salesData: ParsedSalesRow[]
 ): Branch[] {
   const gradeMap = computeGradeMap(salesData)
-  const nameMap = new Map(salesData.map((s) => [s.code, s.name]))
   const closedSet = new Set(salesData.filter((d) => d.growthRate === -100).map((d) => d.code))
 
+  // 매장코드 → 매출데이터 맵
+  const byCode = new Map(salesData.map((s) => [s.code, s]))
+
+  // 매장명 → 매출데이터 맵 (코드 불일치 시 이름으로 fallback)
+  // 이름 정규화: 공백 제거 + 소문자 ("분당점" = "분당점")
+  const normalize = (s: string) => s.replace(/\s/g, '').toLowerCase()
+  const byName = new Map(salesData.map((s) => [normalize(s.name), s]))
+
   if (branchColumns.length > 0) {
-    // 가용재고 컬럼 순서를 기준으로 Branch 생성
-    return branchColumns.map(({ code }) => ({
-      id: `br_${code}`,
-      code,
-      name: nameMap.get(code) ?? code,
-      grade: closedSet.has(code)
-        ? ('X' as Grade)
-        : gradeMap.has(code)
-        ? (gradeMap.get(code) as Grade)
-        : ('X' as Grade), // 매출 데이터 없으면 X (분배 제외)
-    }))
+    return branchColumns.map(({ code, name: stockName }) => {
+      // 1순위: 코드 매칭
+      let matched = byCode.get(code)
+      // 2순위: 매장명 매칭 (C13N처럼 코드 체계가 다를 때)
+      if (!matched && stockName) {
+        matched = byName.get(normalize(stockName))
+      }
+
+      const salesCode = matched?.code ?? code
+      return {
+        id: `br_${code}`,
+        code,
+        name: matched?.name ?? stockName ?? code,
+        grade: closedSet.has(salesCode)
+          ? ('X' as Grade)
+          : matched && gradeMap.has(salesCode)
+          ? (gradeMap.get(salesCode) as Grade)
+          : ('X' as Grade),
+      }
+    })
   }
   // 구버전: 매출 파일 기준으로 Branch 생성 (기존 동작)
   return buildBranchesFromSales(salesData)

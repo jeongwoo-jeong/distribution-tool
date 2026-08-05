@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "인디고키즈 이월상품 분배장",
+  title: "이월상품 자동 분배 시스템",
   description: "이월상품 자동 분배 시스템",
 };
 

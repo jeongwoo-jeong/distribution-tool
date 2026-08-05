@@ -22,6 +22,7 @@ export interface StyleItem {
 export type BranchColumn = {
   code: string
   colIdx: number  // 가용재고 파일의 0-based 열 인덱스
+  name?: string   // 가용재고 파일 2행에서 읽은 매장명 (코드 불일치 시 이름 매칭용)
 }
 
 export interface DistributionData {

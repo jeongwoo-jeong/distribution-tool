@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { Branch, BranchColumn, ClearanceData, DistributionData, StyleItem } from '@/lib/types'
 import { INITIAL_BRANCHES, INITIAL_STYLES, INITIAL_CLEARANCE } from '@/lib/sampleData'
 import { calculateDistribution } from '@/lib/calculations'
@@ -10,24 +10,52 @@ import DistributionTable from '@/components/DistributionTable'
 import GradeSettingsModal from '@/components/GradeSettingsModal'
 import DataUploadModal from '@/components/DataUploadModal'
 
-export default function Home() {
-  const [branches, setBranches] = useState<Branch[]>(INITIAL_BRANCHES)
-  const [allStyles, setAllStyles] = useState<StyleItem[]>(INITIAL_STYLES)
-  const [clearanceData, setClearanceData] = useState<ClearanceData[]>(INITIAL_CLEARANCE)
-  const [stockBuffer, setStockBuffer] = useState<ArrayBuffer | null>(null)
-  const [branchColumns, setBranchColumns] = useState<BranchColumn[]>([])
+const SAVE_KEY = 'distribution-app-v1'
 
-  const [ratio, setRatio] = useState(50)
-  const [data, setData] = useState<DistributionData>({})
+function loadSaved() {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(SAVE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+
+export default function Home() {
+  const saved = useMemo(() => loadSaved(), [])
+
+  const [branches, setBranches] = useState<Branch[]>(saved?.branches ?? INITIAL_BRANCHES)
+  const [allStyles, setAllStyles] = useState<StyleItem[]>(saved?.allStyles ?? INITIAL_STYLES)
+  const [clearanceData, setClearanceData] = useState<ClearanceData[]>(saved?.clearanceData ?? INITIAL_CLEARANCE)
+  const [stockBuffer, setStockBuffer] = useState<ArrayBuffer | null>(null)
+  const [branchColumns, setBranchColumns] = useState<BranchColumn[]>(saved?.branchColumns ?? [])
+
+  const [brandName, setBrandName] = useState<string>(saved?.brandName ?? '')
+  const [ratio, setRatio] = useState<number>(saved?.ratio ?? 50)
+  const [data, setData] = useState<DistributionData>(saved?.data ?? {})
   const [search, setSearch] = useState('')
 
-  // 필터
-  const [filterYear, setFilterYear] = useState<string>('전체')
-  const [filterSeason, setFilterSeason] = useState<string>('전체')
+  // 필터 (빈 배열 = 전체)
+  const [filterYears, setFilterYears] = useState<string[]>([])
+  const [filterSeasons, setFilterSeasons] = useState<string[]>([])
   const [filterCategories, setFilterCategories] = useState<string[]>([])
 
   const [showGradeModal, setShowGradeModal] = useState(false)
   const [showUploadModal, setShowUploadModal] = useState(false)
+  const [saveIndicator, setSaveIndicator] = useState<'saved' | 'saving' | null>(null)
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 자동 저장: branches/allStyles/clearanceData/data/ratio 변경 시
+  useEffect(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    setSaveIndicator('saving')
+    saveTimer.current = setTimeout(() => {
+      try {
+        localStorage.setItem(SAVE_KEY, JSON.stringify({ branches, allStyles, clearanceData, branchColumns, ratio, data, brandName }))
+        setSaveIndicator('saved')
+        setTimeout(() => setSaveIndicator(null), 2000)
+      } catch { setSaveIndicator(null) }
+    }, 1000)
+  }, [branches, allStyles, clearanceData, branchColumns, ratio, data, brandName])
 
   // 브랜드 데이터 업로드 적용
   function handleDataApply(
@@ -35,23 +63,25 @@ export default function Home() {
     newStyles: StyleItem[],
     newClearance: ClearanceData[],
     newStockBuffer: ArrayBuffer,
-    newBranchColumns: BranchColumn[]
+    newBranchColumns: BranchColumn[],
+    newBrandName: string
   ) {
     setBranches(newBranches)
     setAllStyles(newStyles)
     setClearanceData(newClearance)
     setStockBuffer(newStockBuffer)
     setBranchColumns(newBranchColumns)
+    if (newBrandName) setBrandName(newBrandName)
     setData({})
     setSearch('')
-    setFilterYear('전체')
-    setFilterSeason('전체')
+    setFilterYears([])
+    setFilterSeasons([])
     setFilterCategories([])
   }
 
   const SEASON_LABEL: Record<number, string> = { 1: '봄(SS)', 2: '여름(SU)', 3: '가을(FW)', 4: '겨울(WI)', 9: '공통' }
 
-  const filterYears = useMemo(() => {
+  const availableYears = useMemo(() => {
     const years = [...new Set(allStyles.map((s) => s.year).filter(Boolean))] as number[]
     return years.sort()
   }, [allStyles])
@@ -72,11 +102,11 @@ export default function Home() {
         s.styleCode.toLowerCase().includes(q) ||
         s.color.toLowerCase().includes(q)
     )
-    if (filterYear !== '전체') result = result.filter((s) => String(s.year) === filterYear)
-    if (filterSeason !== '전체') result = result.filter((s) => String(s.season) === filterSeason)
+    if (filterYears.length > 0) result = result.filter((s) => filterYears.includes(String(s.year)))
+    if (filterSeasons.length > 0) result = result.filter((s) => filterSeasons.includes(String(s.season)))
     if (filterCategories.length > 0) result = result.filter((s) => filterCategories.includes(s.styleCode.substring(2, 4)))
     return result
-  }, [allStyles, search, filterYear, filterSeason, filterCategories])
+  }, [allStyles, search, filterYears, filterSeasons, filterCategories])
 
   const isCalculated = Object.keys(data).length > 0
   const availableTotal = useMemo(
@@ -108,8 +138,18 @@ export default function Home() {
 
       {/* 타이틀바 */}
       <div style={{ background: '#1D4ED8', color: '#fff', padding: '8px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-        <span style={{ fontWeight: 700, fontSize: '15px', letterSpacing: '0.5px' }}>
-          이월상품 자동 분배장 시스템
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span style={{ fontWeight: 700, fontSize: '15px', letterSpacing: '0.5px' }}>
+            이월상품 자동 분배장 시스템
+          </span>
+          {saveIndicator === 'saving' && (
+            <span style={{ fontSize: '11px', opacity: 0.7 }}>저장 중...</span>
+          )}
+          {saveIndicator === 'saved' && (
+            <span style={{ fontSize: '11px', opacity: 0.8 }}>✓ 자동 저장됨</span>
+          )}
+        </div>
+        <span style={{ display: 'none' }}>{/* placeholder */}
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <div style={{ position: 'relative' }}>
@@ -138,21 +178,33 @@ export default function Home() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 16px', background: '#EFF6FF', borderBottom: '1px solid #BFDBFE', flexShrink: 0, flexWrap: 'wrap' }}>
           <span style={{ fontSize: '12px', fontWeight: 600, color: '#1e3a8a' }}>분배 필터</span>
 
-          {/* 년도 */}
-          {filterYears.length > 0 && (
-            <select value={filterYear} onChange={(e) => { setFilterYear(e.target.value); setData({}) }}
-              style={{ fontSize: '12px', padding: '3px 8px', borderRadius: '4px', border: '1px solid #93C5FD', color: '#1e3a8a', background: '#fff', cursor: 'pointer' }}>
-              <option value="전체">년도 전체</option>
-              {filterYears.map((y) => <option key={y} value={String(y)}>{y}년</option>)}
-            </select>
-          )}
+          {/* 년도 멀티셀렉트 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ fontSize: '11px', color: '#6B7280' }}>년도:</span>
+            {(availableYears.length > 0 ? availableYears : [2024, 2025]).map((y) => {
+              const sel = filterYears.includes(String(y))
+              return (
+                <button key={y} onClick={() => { setFilterYears((prev) => sel ? prev.filter((v) => v !== String(y)) : [...prev, String(y)]); setData({}) }}
+                  style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '12px', cursor: 'pointer', fontWeight: 600, border: `1px solid ${sel ? '#1D4ED8' : '#93C5FD'}`, background: sel ? '#1D4ED8' : '#fff', color: sel ? '#fff' : '#1e3a8a' }}>
+                  {y}년
+                </button>
+              )
+            })}
+          </div>
 
-          {/* 계절 */}
-          <select value={filterSeason} onChange={(e) => { setFilterSeason(e.target.value); setData({}) }}
-            style={{ fontSize: '12px', padding: '3px 8px', borderRadius: '4px', border: '1px solid #93C5FD', color: '#1e3a8a', background: '#fff', cursor: 'pointer' }}>
-            <option value="전체">계절 전체</option>
-            {[1,2,3,4,9].map((s) => <option key={s} value={String(s)}>{SEASON_LABEL[s]}</option>)}
-          </select>
+          {/* 계절 멀티셀렉트 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ fontSize: '11px', color: '#6B7280' }}>계절:</span>
+            {[1,2,3,4,9].map((s) => {
+              const sel = filterSeasons.includes(String(s))
+              return (
+                <button key={s} onClick={() => { setFilterSeasons((prev) => sel ? prev.filter((v) => v !== String(s)) : [...prev, String(s)]); setData({}) }}
+                  style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '12px', cursor: 'pointer', fontWeight: 600, border: `1px solid ${sel ? '#1D4ED8' : '#93C5FD'}`, background: sel ? '#1D4ED8' : '#fff', color: sel ? '#fff' : '#1e3a8a' }}>
+                  {SEASON_LABEL[s]}
+                </button>
+              )
+            })}
+          </div>
 
           {/* 카테고리 (최대 3개 토글) */}
           {categoryOptions.length > 0 && (
@@ -185,15 +237,15 @@ export default function Home() {
           )}
 
           {/* 필터 초기화 */}
-          {(filterYear !== '전체' || filterSeason !== '전체' || filterCategories.length > 0) && (
-            <button onClick={() => { setFilterYear('전체'); setFilterSeason('전체'); setFilterCategories([]); setData({}) }}
+          {(filterYears.length > 0 || filterSeasons.length > 0 || filterCategories.length > 0) && (
+            <button onClick={() => { setFilterYears([]); setFilterSeasons([]); setFilterCategories([]); setData({}) }}
               style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '4px', border: '1px solid #FCA5A5', color: '#DC2626', background: '#FEF2F2', cursor: 'pointer' }}>
               필터 초기화
             </button>
           )}
 
           {/* 분배 대상 표시 */}
-          {(filterYear !== '전체' || filterSeason !== '전체' || filterCategories.length > 0) && (
+          {(filterYears.length > 0 || filterSeasons.length > 0 || filterCategories.length > 0) && (
             <span style={{ fontSize: '11px', color: '#1D4ED8', fontWeight: 600 }}>
               분배 대상: {styles.length}개 / 전체 {allStyles.length}개
             </span>
@@ -210,9 +262,9 @@ export default function Home() {
           onReset={handleReset}
           onExport={() => {
             if (stockBuffer && branchColumns.length > 0 && isCalculated) {
-              exportToStockFile(stockBuffer, branchColumns, allStyles, branches, data)
+              exportToStockFile(stockBuffer, branchColumns, allStyles, branches, data, brandName)
             } else {
-              exportToExcel(allStyles, branches, data, ratio)
+              exportToExcel(allStyles, branches, data, ratio, brandName)
             }
           }}
           onDataUpload={() => setShowUploadModal(true)}
@@ -233,6 +285,7 @@ export default function Home() {
           onCellChange={handleCellChange}
           availableTotal={availableTotal}
           distributionRatio={ratio}
+          brandName={brandName}
         />
       </div>
 
